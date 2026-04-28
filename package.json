@@ -1,0 +1,20 @@
+{
+  "name": "bracco-admin-mcp",
+  "version": "1.0.0",
+  "description": "Admin MCP server for the Bracco social bot. Lets the team make controlled changes via Claude.",
+  "type": "module",
+  "bin": {
+    "bracco-admin-mcp": "./index.mjs"
+  },
+  "main": "./index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
