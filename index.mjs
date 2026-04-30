@@ -123,8 +123,19 @@ server.tool(
 );
 
 server.tool(
-  'sync_affiliate_leads_to_monday',
-  'Push any new affiliate-shaped DM replies to the Monday.com Leads board. Idempotent — won\'t create duplicate rows for users already pushed. Run this on demand whenever you want to refresh the Leads board.',
+  'sync_warm_leads_to_monday',
+  `Push all new warm DM-reply leads to the Monday.com Leads board. Covers:
+- Interested / Question / Product Feedback sentiment replies
+- Affiliate / collaboration / partnership inquiries
+- Across BOTH @PlayBracco and @bet105 accounts
+
+Each lead is created in Monday with handle, sentiment, lead type (Affiliate /
+Network / Influencer / Interested / Question / Product Feedback), account
+source, full reply text, and the original DM that prompted it.
+
+This runs automatically every 30 min in the background — call this manually
+only if you want to push leads sooner. Idempotent (won't duplicate users
+already pushed).`,
   {},
   async () => toContent(await apiPost('/sync-affiliate-to-monday', {}))
 );
