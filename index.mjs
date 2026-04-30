@@ -17,6 +17,14 @@ import { z } from 'zod';
 const API_URL = process.env.BRACCO_ADMIN_API_URL?.replace(/\/+$/, '');
 const API_KEY = process.env.BRACCO_ADMIN_API_KEY;
 
+// MCP mode controls which tools get exposed:
+//   - "team" (default): read tools + DM editing + follow-target management + lead sync.
+//     Cannot pause accounts, retire DM variants, or change daily caps.
+//   - "eng": everything, including pause/resume/retire/cap controls.
+// Set via BRACCO_ADMIN_MCP_MODE env var on each user's Claude Code config.
+const MODE = (process.env.BRACCO_ADMIN_MCP_MODE ?? 'team').toLowerCase();
+const ENG_MODE = MODE === 'eng' || MODE === 'engineering' || MODE === 'admin';
+
 if (!API_URL || !API_KEY) {
   console.error('Missing BRACCO_ADMIN_API_URL or BRACCO_ADMIN_API_KEY env var');
   process.exit(1);
@@ -113,14 +121,16 @@ The new text takes effect on the next DM the bot sends. Existing queued DMs are 
   async ({ segment, text }) => toContent(await apiPost('/update-dm-message', { segment, text }))
 );
 
-server.tool(
-  'update_daily_dm_cap',
-  'Change how many DMs the bot can send in a 24-hour period. Default is 25. Range: 5 to 100. Use to dial volume up or down quickly.',
-  {
-    cap: z.number().int().min(5).max(100).describe('New daily DM cap (5-100)'),
-  },
-  async ({ cap }) => toContent(await apiPost('/update-daily-dm-cap', { cap }))
-);
+if (ENG_MODE) {
+  server.tool(
+    'update_daily_dm_cap',
+    'Change how many DMs the bot can send in a 24-hour period. Default is 25. Range: 5 to 100. ENG-ONLY — can throttle bet105 outbound significantly.',
+    {
+      cap: z.number().int().min(5).max(100).describe('New daily DM cap (5-100)'),
+    },
+    async ({ cap }) => toContent(await apiPost('/update-daily-dm-cap', { cap }))
+  );
+}
 
 server.tool(
   'sync_warm_leads_to_monday',
@@ -143,42 +153,7 @@ already pushed).`,
 // ── Account-wide controls (any of: baseball, football, playbracco, bet105) ──
 const ACCOUNT_ENUM = z.enum(['baseball', 'football', 'playbracco', 'bet105']).describe('Which Bracco account');
 
-server.tool(
-  'pause_account',
-  `Temporarily pause an account. While paused, the bot will not post, follow, or DM from that account. Cycles auto-resume when the duration expires (or call resume_account to lift it manually).
-
-Examples:
-- "Pause bet105 for an hour" → account=bet105, duration_hours=1
-- "Pause @BraccoNFL until further notice" → account=football, duration_hours omitted (indefinite)
-- "Take baseball offline for the rest of the day" → account=baseball, duration_hours=8
-
-Max indefinite OR up to 168 hours (1 week).`,
-  {
-    account:        ACCOUNT_ENUM,
-    duration_hours: z.number().min(0.0167).max(168).optional().describe('Hours until auto-resume. Omit for indefinite. 1 minute = 0.0167.'),
-    reason:         z.string().max(200).optional().describe('Why — for the audit log'),
-    set_by:         z.string().max(60).optional().describe('Who is pausing — for the audit log'),
-  },
-  async ({ account, duration_hours, reason, set_by }) =>
-    toContent(await apiPost('/pause-account', { account, duration_hours, reason, set_by }))
-);
-
-server.tool(
-  'resume_account',
-  'Resume a paused account. No-op if it wasn\'t paused.',
-  {
-    account: ACCOUNT_ENUM,
-    set_by:  z.string().max(60).optional().describe('Who is resuming'),
-  },
-  async ({ account, set_by }) => toContent(await apiPost('/resume-account', { account, set_by }))
-);
-
-server.tool(
-  'get_account_status',
-  'Show which accounts are currently paused, when each pause expires, and who set it. Returns empty list if all accounts are running normally.',
-  {},
-  async () => toContent(await apiGet('/account-status'))
-);
+// ── Always available (team + eng) ──────────────────────────────────────────
 
 server.tool(
   'add_follow_target',
@@ -194,7 +169,7 @@ server.tool(
 
 server.tool(
   'remove_follow_target',
-  `Drop an X handle from an account's follow-target rotation (or block it from being auto-discovered). Use when a target isn't converting or for brand-safety reasons.`,
+  `Drop an X handle from an account's follow-target rotation (or block it from being auto-discovered). Use when a target isn't converting or for brand-safety reasons. Rate-limited to 10/account/24h.`,
   {
     account: ACCOUNT_ENUM,
     handle:  z.string().describe('X handle, with or without leading @'),
@@ -228,8 +203,59 @@ Min 30 chars, max 1000 chars. The variant_id must be unique-ish (use a descripti
 );
 
 server.tool(
+  'list_dm_variants',
+  'Show the current DYNAMIC DM variants for an account (those added via admin or opener-mining). Static code-defined variants are not included here.',
+  { account: ACCOUNT_ENUM },
+  async ({ account }) => toContent(await apiGet('/list-dm-variants', { account }))
+);
+
+server.tool(
+  'get_account_status',
+  'Show which accounts are currently paused, when each pause expires, and who set it. Read-only — only engineering can pause/resume.',
+  {},
+  async () => toContent(await apiGet('/account-status'))
+);
+
+// ── Engineering-only tools (set BRACCO_ADMIN_MCP_MODE=eng to enable) ────────
+// These can affect bot uptime and are gated to engineering installs only.
+if (ENG_MODE) {
+
+server.tool(
+  'pause_account',
+  `Temporarily pause an account. While paused, the bot will not post, follow, or DM from that account. Auto-resumes when duration expires (or call resume_account to lift early).
+
+Examples:
+- "Pause bet105 for an hour" → account=bet105, duration_hours=1
+- "Take @BraccoNFL offline for the rest of the day" → account=football, duration_hours=8
+- "Pause baseball for 30 min while we investigate" → account=baseball, duration_hours=0.5
+
+Limits (escalate to engineering for anything beyond):
+- Max 24 hours per pause (no indefinite pauses)
+- Max 2 of 4 accounts paused simultaneously
+- 'reason' is required (min 5 chars)`,
+  {
+    account:        ACCOUNT_ENUM,
+    duration_hours: z.number().min(0.0167).max(24).describe('Hours until auto-resume. Required. Max 24 (1 day). 1 minute = 0.0167.'),
+    reason:         z.string().min(5).max(200).describe('Why — required for audit log'),
+    set_by:         z.string().max(60).optional().describe('Who is pausing — for the audit log'),
+  },
+  async ({ account, duration_hours, reason, set_by }) =>
+    toContent(await apiPost('/pause-account', { account, duration_hours, reason, set_by }))
+);
+
+server.tool(
+  'resume_account',
+  'Resume a paused account. No-op if it wasn\'t paused. ENG-ONLY.',
+  {
+    account: ACCOUNT_ENUM,
+    set_by:  z.string().max(60).optional().describe('Who is resuming'),
+  },
+  async ({ account, set_by }) => toContent(await apiPost('/resume-account', { account, set_by }))
+);
+
+server.tool(
   'retire_dm_variant',
-  'Pull a DM variant out of rotation. Static variants (v1_original etc.) cannot be retired this way; only dynamic variants added via upsert_dm_variant or opener-mining.',
+  'Pull a DM variant out of rotation. ENG-ONLY — could effectively shut down DMs if the last active variant is retired. Rate-limited to 2/24h. Static code-defined variants cannot be retired.',
   {
     variant_id: z.string().describe('The variant_id to retire'),
     set_by:     z.string().max(60).optional(),
@@ -238,14 +264,9 @@ server.tool(
     toContent(await apiPost('/retire-dm-variant', { variant_id, set_by }))
 );
 
-server.tool(
-  'list_dm_variants',
-  'Show the current DYNAMIC DM variants for an account (those added via admin or opener-mining). Static code-defined variants are not included here.',
-  { account: ACCOUNT_ENUM },
-  async ({ account }) => toContent(await apiGet('/list-dm-variants', { account }))
-);
+}  // end if (ENG_MODE)
 
 // ── Start ────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error('Bracco Admin MCP server running');
+console.error(`Bracco Admin MCP server running (mode: ${ENG_MODE ? 'eng (full access)' : 'team (DM + targets only)'})`);
