@@ -129,6 +129,111 @@ server.tool(
   async () => toContent(await apiPost('/sync-affiliate-to-monday', {}))
 );
 
+// ── Account-wide controls (any of: baseball, football, playbracco, bet105) ──
+const ACCOUNT_ENUM = z.enum(['baseball', 'football', 'playbracco', 'bet105']).describe('Which Bracco account');
+
+server.tool(
+  'pause_account',
+  `Temporarily pause an account. While paused, the bot will not post, follow, or DM from that account. Cycles auto-resume when the duration expires (or call resume_account to lift it manually).
+
+Examples:
+- "Pause bet105 for an hour" → account=bet105, duration_hours=1
+- "Pause @BraccoNFL until further notice" → account=football, duration_hours omitted (indefinite)
+- "Take baseball offline for the rest of the day" → account=baseball, duration_hours=8
+
+Max indefinite OR up to 168 hours (1 week).`,
+  {
+    account:        ACCOUNT_ENUM,
+    duration_hours: z.number().min(0.0167).max(168).optional().describe('Hours until auto-resume. Omit for indefinite. 1 minute = 0.0167.'),
+    reason:         z.string().max(200).optional().describe('Why — for the audit log'),
+    set_by:         z.string().max(60).optional().describe('Who is pausing — for the audit log'),
+  },
+  async ({ account, duration_hours, reason, set_by }) =>
+    toContent(await apiPost('/pause-account', { account, duration_hours, reason, set_by }))
+);
+
+server.tool(
+  'resume_account',
+  'Resume a paused account. No-op if it wasn\'t paused.',
+  {
+    account: ACCOUNT_ENUM,
+    set_by:  z.string().max(60).optional().describe('Who is resuming'),
+  },
+  async ({ account, set_by }) => toContent(await apiPost('/resume-account', { account, set_by }))
+);
+
+server.tool(
+  'get_account_status',
+  'Show which accounts are currently paused, when each pause expires, and who set it. Returns empty list if all accounts are running normally.',
+  {},
+  async () => toContent(await apiGet('/account-status'))
+);
+
+server.tool(
+  'add_follow_target',
+  `Add an X handle to an account's follow-target rotation. The bot will start following users who engage with that account's content. Used to expand the audience graph — e.g. "Add @ProphetX to PlayBracco's targets" routes more prediction-market followers into the funnel.`,
+  {
+    account: ACCOUNT_ENUM,
+    handle:  z.string().describe('X handle, with or without leading @'),
+    set_by:  z.string().max(60).optional(),
+  },
+  async ({ account, handle, set_by }) =>
+    toContent(await apiPost('/add-follow-target', { account, handle, set_by }))
+);
+
+server.tool(
+  'remove_follow_target',
+  `Drop an X handle from an account's follow-target rotation (or block it from being auto-discovered). Use when a target isn't converting or for brand-safety reasons.`,
+  {
+    account: ACCOUNT_ENUM,
+    handle:  z.string().describe('X handle, with or without leading @'),
+    reason:  z.string().max(200).optional(),
+    set_by:  z.string().max(60).optional(),
+  },
+  async ({ account, handle, reason, set_by }) =>
+    toContent(await apiPost('/remove-follow-target', { account, handle, reason, set_by }))
+);
+
+server.tool(
+  'list_follow_targets',
+  'Show the current dynamic (auto-discovered + admin-added) and dropped follow targets for an account.',
+  { account: ACCOUNT_ENUM },
+  async ({ account }) => toContent(await apiGet('/list-follow-targets', { account }))
+);
+
+server.tool(
+  'upsert_dm_variant',
+  `Add a new DM variant for an account, or replace an existing one with the same id. The variant immediately enters rotation. Used for "Change the PlayBracco DM to: ..." style requests — supply a new variant_id like "v4_jq_ceo_test" and the new text. Existing DM variants stay active alongside it.
+
+Min 30 chars, max 1000 chars. The variant_id must be unique-ish (use a descriptive name).`,
+  {
+    account:    ACCOUNT_ENUM,
+    variant_id: z.string().min(3).max(48).describe('Unique short id e.g. "v4_ceo_test"'),
+    text:       z.string().min(30).max(1000).describe('The new DM text'),
+    set_by:     z.string().max(60).optional(),
+  },
+  async ({ account, variant_id, text, set_by }) =>
+    toContent(await apiPost('/upsert-dm-variant', { account, variant_id, text, set_by }))
+);
+
+server.tool(
+  'retire_dm_variant',
+  'Pull a DM variant out of rotation. Static variants (v1_original etc.) cannot be retired this way; only dynamic variants added via upsert_dm_variant or opener-mining.',
+  {
+    variant_id: z.string().describe('The variant_id to retire'),
+    set_by:     z.string().max(60).optional(),
+  },
+  async ({ variant_id, set_by }) =>
+    toContent(await apiPost('/retire-dm-variant', { variant_id, set_by }))
+);
+
+server.tool(
+  'list_dm_variants',
+  'Show the current DYNAMIC DM variants for an account (those added via admin or opener-mining). Static code-defined variants are not included here.',
+  { account: ACCOUNT_ENUM },
+  async ({ account }) => toContent(await apiGet('/list-dm-variants', { account }))
+);
+
 // ── Start ────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);
