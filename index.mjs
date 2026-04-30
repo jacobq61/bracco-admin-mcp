@@ -216,6 +216,47 @@ server.tool(
   async () => toContent(await apiGet('/account-status'))
 );
 
+server.tool(
+  'follow_user',
+  `Manually follow an X handle from one of the Bracco accounts. Used when you spot someone the bot should be following but hasn't picked up yet — affiliates, big accounts, specific bettors, etc.
+
+Examples:
+- "Follow @ProphetX from PlayBracco" → account=playbracco, handle=ProphetX
+- "Have @bet105 follow @sharpcapper" → account=bet105, handle=sharpcapper
+- "Follow @nflinsider from BraccoNFL because he just RT'd us" → account=football, handle=nflinsider, reason="RT'd our content"
+
+Limits: 30 manual follows per day across the whole team.`,
+  {
+    account: ACCOUNT_ENUM,
+    handle:  z.string().describe('X handle, with or without leading @'),
+    set_by:  z.string().max(60).optional().describe('Your name — for the audit log'),
+    reason:  z.string().max(200).optional().describe('Why — for the audit log'),
+  },
+  async ({ account, handle, set_by, reason }) =>
+    toContent(await apiPost('/follow-user', { account, handle, set_by, reason }))
+);
+
+server.tool(
+  'send_dm',
+  `Send a custom DM from @PlayBracco or @bet105 to a specific X handle. Used for personal outreach — affiliate negotiations, lead follow-up, partnership conversations, anything where the autonomous DM template won't cut it.
+
+Sport accounts (BraccoBaseball / BraccoNFL) do NOT DM by design — only PlayBracco and bet105 are DM-capable.
+
+Examples:
+- "DM @sharpcapper from PlayBracco saying: Hey, saw your reply earlier — wanted to send over a personal access link if you're interested. Just reply 'send it' and I'll DM the details." → account=playbracco, handle=sharpcapper, text=...
+
+Limits: 20 manual DMs per day across the whole team. Min 20 chars, max 1000.`,
+  {
+    account: z.enum(['playbracco', 'bet105']).describe('Only PlayBracco or bet105 — sport accounts do not DM'),
+    handle:  z.string().describe('X handle, with or without leading @'),
+    text:    z.string().min(20).max(1000).describe('The DM text. Make it sound human, not bot-generated.'),
+    set_by:  z.string().max(60).optional().describe('Your name — for the audit log'),
+    reason:  z.string().max(200).optional().describe('Context — for the audit log'),
+  },
+  async ({ account, handle, text, set_by, reason }) =>
+    toContent(await apiPost('/send-dm', { account, handle, text, set_by, reason }))
+);
+
 // ── Engineering-only tools (set BRACCO_ADMIN_MCP_MODE=eng to enable) ────────
 // These can affect bot uptime and are gated to engineering installs only.
 if (ENG_MODE) {
