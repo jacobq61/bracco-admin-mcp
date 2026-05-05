@@ -133,6 +133,36 @@ if (ENG_MODE) {
 }
 
 server.tool(
+  'get_unresponded_warm_replies',
+  `Show warm DM replies (Interested / Question / Product Feedback sentiment) that the team hasn't manually responded to yet. These are people waiting on a personal reply — high priority follow-up list.
+
+Returns: handle, account, sentiment, full reply text, and how long ago they replied.`,
+  { limit: z.number().int().min(1).max(200).optional().describe('Max rows. Default 50.') },
+  async ({ limit }) => toContent(await apiGet('/unresponded-warm', { limit }))
+);
+
+server.tool(
+  'audit_monday_entries',
+  `Re-classify every entry currently in the Monday Leads board using the new partner-vs-player classifier. Surfaces which entries should NOT be in Monday (because they're actually players or noise, not affiliate partners).
+
+Returns: per-entry verdict (PARTNER / PLAYER / NOISE), suggested new label, and "should_remove" flag. Read-only — does NOT delete anything.`,
+  {},
+  async () => toContent(await apiGet('/audit-monday-entries'))
+);
+
+server.tool(
+  'cleanup_monday_entries',
+  `Delete non-partner entries from Monday board AND our dedup table. Default behavior: re-audit and remove any entry classified as PLAYER or NOISE.
+
+ALWAYS DO A DRY RUN FIRST — set dry_run=true to preview what would be deleted. Set dry_run=false to actually delete.`,
+  {
+    dry_run:    z.boolean().describe('true = preview only, false = actually delete'),
+    target_ids: z.array(z.string()).optional().describe('Optional specific X user IDs to remove. If omitted, auto-selects non-PARTNER entries.'),
+  },
+  async ({ dry_run, target_ids }) => toContent(await apiPost('/cleanup-monday-entries', { dryRun: dry_run, target_ids }))
+);
+
+server.tool(
   'sync_warm_leads_to_monday',
   `Push all new warm DM-reply leads to the Monday.com Leads board. Covers:
 - Interested / Question / Product Feedback sentiment replies
