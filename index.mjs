@@ -142,6 +142,25 @@ Returns: handle, account, sentiment, full reply text, and how long ago they repl
 );
 
 server.tool(
+  'scrape_dm_history',
+  `One-time historical DM backfill. Pulls every conversation from the X inbox of @PlayBracco and/or @bet105, finds inbound messages we never logged (especially cold inbound DMs from partners who messaged us first), and ingests them into the pipeline so the classifier routes them to Monday or Slack.
+
+Recommended usage: run with dry_run=true first to see scope, then dry_run=false to actually backfill.
+
+Notes:
+- Burns API credits — each conversation is a small read against the account's monthly quota
+- Only runs against playbracco + bet105 (sport accounts don't accept DMs)
+- Idempotent: running twice won't double-log (deduped by target_id per account)
+- After backfill, the 30-min auto-sync will pick the new entries up and route them`,
+  {
+    account: z.enum(['playbracco', 'bet105']).optional().describe('Specific account to scrape. Omit to scrape both.'),
+    dry_run: z.boolean().describe('true = scope check only, false = actually backfill into dm_log'),
+  },
+  async ({ account, dry_run }) =>
+    toContent(await apiPost('/scrape-history', { account, dry_run }))
+);
+
+server.tool(
   'audit_monday_entries',
   `Re-classify every entry currently in the Monday Leads board using the new partner-vs-player classifier. Surfaces which entries should NOT be in Monday (because they're actually players or noise, not affiliate partners).
 
