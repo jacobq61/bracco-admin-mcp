@@ -306,6 +306,38 @@ Limits: 20 manual DMs per day across the whole team. Min 20 chars, max 1000.`,
     toContent(await apiPost('/send-dm', { account, handle, text, set_by, reason }))
 );
 
+server.tool(
+  'reply_dm',
+  `Send a FOLLOW-UP message into an EXISTING DM thread with someone @PlayBracco or @bet105 has already DM'd. Use this for:
+
+- Responding to a warm reply from a prior DM
+- Sending a personalized follow-up to someone who replied positively to the initial outreach
+- Continuing a conversation thread
+
+Key difference from send_dm:
+  • send_dm  — REQUIRES no prior DM (first-touch cold outreach only)
+  • reply_dm — REQUIRES a prior DM (follow-up into existing thread)
+
+Use the right one for the situation. They use the same X API endpoint under the hood; X happily appends to existing threads. Our system needs to know which is which to avoid sending two cold openers and confusing the recipient.
+
+Sport accounts (BraccoBaseball / BraccoNFL) do NOT DM by design — only PlayBracco and bet105 are DM-capable.
+
+Examples:
+- "Reply to @sharpcapper from PlayBracco saying: Hey, awesome — I'll send you the access link in a sec, what's your email?"  → account=playbracco, handle=sharpcapper, text=...
+- "Reply to @bigbookmaker from bet105 saying: Sounds good. Let's set up a 15-min call this week to walk through the affiliate terms." → account=bet105, handle=bigbookmaker, text=...
+
+Limits: shared 20/day cap with send_dm. Min 5 chars (replies can be very short), max 1000.`,
+  {
+    account: z.enum(['playbracco', 'bet105']).describe('Only PlayBracco or bet105 — sport accounts do not DM'),
+    handle:  z.string().describe('X handle, with or without leading @'),
+    text:    z.string().min(5).max(1000).describe('The reply text. Can be short — this is a follow-up, not first-touch.'),
+    set_by:  z.string().max(60).optional().describe('Your name — for the audit log'),
+    reason:  z.string().max(200).optional().describe('Context — for the audit log'),
+  },
+  async ({ account, handle, text, set_by, reason }) =>
+    toContent(await apiPost('/reply-dm', { account, handle, text, set_by, reason }))
+);
+
 // ── Engineering-only tools (set BRACCO_ADMIN_MCP_MODE=eng to enable) ────────
 // These can affect bot uptime and are gated to engineering installs only.
 if (ENG_MODE) {
