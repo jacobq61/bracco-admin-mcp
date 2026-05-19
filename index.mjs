@@ -338,6 +338,48 @@ Limits: shared 20/day cap with send_dm. Min 5 chars (replies can be very short),
     toContent(await apiPost('/reply-dm', { account, handle, text, set_by, reason }))
 );
 
+// ── Auto-reply system controls ──────────────────────────────────────────────
+
+server.tool(
+  'add_to_do_not_contact',
+  `Add an X handle to the do-not-contact blocklist. Users on this list will NEVER receive an auto-reply, even if their DM reply lands as warm/interested. Use for VIPs, friends-of-founder, anyone Justin wants to handle personally.
+
+The autonomous auto-reply system will skip them silently AND won't send a "human flag" Slack ping either — they're entirely excluded from the bot's pipeline.
+
+Examples:
+- "Don't auto-reply to @sharpcapper" → handle=sharpcapper, reason="Justin handling personally"`,
+  {
+    handle:   z.string().describe('X handle, with or without leading @'),
+    reason:   z.string().max(200).optional().describe('Why on the list (audit log)'),
+    added_by: z.string().max(60).optional().describe('Your name'),
+  },
+  async ({ handle, reason, added_by }) =>
+    toContent(await apiPost('/do-not-contact-add', { handle, reason, added_by }))
+);
+
+server.tool(
+  'remove_from_do_not_contact',
+  'Remove a handle from the do-not-contact list. They become eligible for auto-replies again.',
+  { handle: z.string().describe('X handle to remove') },
+  async ({ handle }) => toContent(await apiPost('/do-not-contact-remove', { handle }))
+);
+
+server.tool(
+  'list_do_not_contact',
+  'Show the current do-not-contact blocklist with reasons and timestamps.',
+  {},
+  async () => toContent(await apiGet('/do-not-contact-list'))
+);
+
+server.tool(
+  'list_recent_auto_replies',
+  `Audit log of recent auto-reply attempts — what was sent, what got flagged for humans, what got hard-skipped. Spot-check before fully trusting the bot.
+
+Returns: handle, routing (auto_reply / human_flag / hard_skip), sentiment, variant used, status (sent / flagged / failed / dry_run / skipped), failure reason if any, and the reply text we sent.`,
+  { limit: z.number().int().min(1).max(500).optional().describe('Max rows. Default 50.') },
+  async ({ limit }) => toContent(await apiGet('/recent-auto-replies', { limit }))
+);
+
 // ── Engineering-only tools (set BRACCO_ADMIN_MCP_MODE=eng to enable) ────────
 // These can affect bot uptime and are gated to engineering installs only.
 if (ENG_MODE) {
