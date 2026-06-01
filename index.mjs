@@ -372,6 +372,29 @@ server.tool(
 );
 
 server.tool(
+  'mark_handled',
+  `Mark a DM thread as handled so the bot stops Slack-pinging you about it.
+
+Use this when you replied to a customer DIRECTLY in X (web/mobile app) instead of through the reply_dm tool — the bot doesn't see those manual replies, so without this command it will keep flagging every new message in that thread as NEEDS HUMAN.
+
+After calling this, the Slack-suppression logic treats the thread as if you'd replied via MCP. New customer messages in the next 48h won't trigger pings.
+
+Examples:
+- "Mark @sharpcapper as handled on bet105" → account=bet105, handle=sharpcapper
+- "I replied to @kingbettor in X already, mark it handled" → account=bet105, handle=kingbettor
+
+If they reply again >48h later, you'll start getting pings again (good — picks up dropped threads).`,
+  {
+    account: z.enum(['bet105', 'playbracco']).describe('Which Bracco account owns the DM thread'),
+    handle:  z.string().describe('X handle of the person you replied to, with or without @'),
+    reason:  z.string().max(200).optional().describe('Optional note (audit log)'),
+    set_by:  z.string().max(60).optional().describe('Your name. Defaults to "justin".'),
+  },
+  async ({ account, handle, reason, set_by }) =>
+    toContent(await apiPost('/mark-handled', { account, handle, reason, set_by }))
+);
+
+server.tool(
   'list_recent_auto_replies',
   `Audit log of recent auto-reply attempts — what was sent, what got flagged for humans, what got hard-skipped. Spot-check before fully trusting the bot.
 
