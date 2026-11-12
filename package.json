@@ -8,7 +8,9 @@
   },
   "main": "./index.mjs",
   "scripts": {
-    "start": "node index.mjs"
+    "start": "node index.mjs",
+    "check": "node --check index.mjs && node --check scripts/smoke.mjs",
+    "test": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
